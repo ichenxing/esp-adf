@@ -6,7 +6,10 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -27,6 +30,8 @@
 #include "audio_hal.h"
 #include "board.h"
 
+#define MUSIC_DIR_PATH	"/sdcard/music"
+
 static const char *TAG = "SDCARD_MP3_CONTROL_EXAMPLE";
 
 static const char *mp3_file[] = {
@@ -40,6 +45,66 @@ static const char *mp3_file[] = {
 
 #define CURRENT 0
 #define NEXT    1
+
+static DIR *dir;
+static FILE *play_file;
+
+static FILE *get_file_from_dir(const char *dir_path, int file_type, int next_file)
+{
+	struct dirent *de;
+	static char *path;
+
+	if(path == NULL){
+		path = dir_path;
+	}else if(strcasecmp(dir_path, path) != 0){
+		ESP_LOGI(TAG, "[ * ] Path name: %s, DIR path name: %s", path, dir_path);
+		
+		path = dir_path;
+		next_file = CURRENT;
+	
+		if (dir != NULL) {
+	        closedir(dir);
+	        dir = NULL;
+    	}
+
+		if (play_file != NULL) {
+            fclose(play_file);
+            play_file = NULL;
+        }
+	}
+
+	// 打开文件夹
+	if(dir == NULL){
+		dir = opendir(path);
+		if(!dir){
+			ESP_LOGE(TAG, "Error opening dir");
+            return NULL;
+		}
+	}
+	
+	if(next_file != CURRENT){
+		if (play_file != NULL) {
+            fclose(play_file);
+            play_file = NULL;
+        }
+	}
+	
+	if (play_file == NULL) {
+		de = readdir(dir);	// 读取文件夹下的文件列表
+		// TODO: 判断文件后缀是否为.mp3格式
+	
+		ESP_LOGI(TAG, "[ * ] File name: %s", de->d_name);
+		
+		
+        play_file = fopen(de->d_name, "r");
+        if (!play_file) {
+            ESP_LOGE(TAG, "Error opening file");
+            return NULL;
+        }
+    }
+		
+	return play_file;
+}
 
 static FILE *get_file(int next_file)
 {
@@ -79,7 +144,6 @@ static int my_sdcard_read_cb(audio_element_handle_t el, char *buf, int len, Tick
     }
     return read_len;
 }
-
 
 void app_main(void)
 {
@@ -246,6 +310,16 @@ void app_main(void)
                 ESP_LOGI(TAG, "[ * ] Volume set to %d %%", player_volume);
             }
         }
+    }
+
+    if (dir != NULL) {
+        closedir(dir);
+        dir = NULL;
+    }
+
+	if (play_file != NULL) {
+        fclose(play_file);
+        play_file = NULL;
     }
 
     ESP_LOGI(TAG, "[ 6 ] Stop audio_pipeline");
